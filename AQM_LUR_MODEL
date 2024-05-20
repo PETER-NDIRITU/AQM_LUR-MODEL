@@ -1,0 +1,105 @@
+Step 1: Load and Preprocess Data
+
+import pandas as pd
+import geopandas as gpd
+from shapely.geometry import Point, LineString
+from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LinearRegression
+from sklearn.metrics import r2_score
+from sklearn.preprocessing import StandardScaler
+import numpy as np
+
+# Load air quality data
+air_quality_data = pd.read_csv('path/to/air_quality_data.csv')  # Replace with actual path
+# Example columns: ['Date', 'Temperature', 'Wind_Speed', 'Wind_Direction', 'CO', 'NO2', 'CH4', 'OZONE', 'SO2', 'AQI']
+
+# Load shapefiles for towns, green spaces, and roads
+towns_gdf = gpd.read_file('path/to/towns_shapefile.shp')  # Replace with actual path
+green_spaces_gdf = gpd.read_file('path/to/green_spaces_shapefile.shp')  # Replace with actual path
+roads_gdf = gpd.read_file('path/to/roads_shapefile.shp')  # Replace with actual path
+
+# Ensure all GeoDataFrames have the same CRS
+# Replace 'EPSG:4326' with the appropriate CRS if needed
+towns_gdf = towns_gdf.to_crs('EPSG:4326')
+green_spaces_gdf = green_spaces_gdf.to_crs('EPSG:4326')
+roads_gdf = roads_gdf.to_crs('EPSG:4326')
+
+
+Step 2: Create Spatial Predictors
+
+# Calculate the distance from each town to the nearest road
+towns_gdf['proximity_to_road'] = towns_gdf.geometry.apply(
+    lambda point: roads_gdf.distance(point).min()
+)
+
+# Calculate the distance from each town to the nearest green space
+towns_gdf['proximity_to_green_space'] = towns_gdf.geometry.apply(
+    lambda point: green_spaces_gdf.distance(point).min()
+)
+
+
+
+Step 3: Merge and Prepare Data
+
+# Merge air quality data with towns data based on the common geographical area
+merged_data = pd.merge(air_quality_data, towns_gdf, how='inner', left_on='geometry', right_on='geometry')
+
+# Select features and target variable
+features = ['Temperature', 'Wind_Speed', 'Wind_Direction', 'CO', 'NO2', 'CH4', 'OZONE', 'SO2',
+            'proximity_to_road', 'proximity_to_green_space']
+X = merged_data[features]
+y = merged_data['AQI']
+
+# Standardize features
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X)
+
+# Split the data into training and testing sets
+X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.2, random_state=42)
+
+
+
+Step 4: Build and Validate the Model
+
+# Initialize and train the regression model
+model = LinearRegression()
+model.fit(X_train, y_train)
+
+# Predict on the test set
+y_pred = model.predict(X_test)
+
+# Calculate the coefficient of determination (R²)
+r2 = r2_score(y_test, y_pred)
+print(f'R²: {r2}')
+
+# Display the model coefficients
+coefficients = pd.DataFrame(model.coef_, features, columns=['Coefficient'])
+print(coefficients)
+
+
+To plot the whole data, including the predicted AQI values for the next 5 years from 2024, follow these steps:
+
+
+import matplotlib.pyplot as plt
+import pandas as pd
+
+# Generate date-time index for the next 5 years
+date_range = pd.date_range(start='2024-05-20', periods=365*5, freq='D')
+
+# Predict AQI values for each timestamp using the trained model
+predicted_aqi = model.predict(scaler.transform(X))
+
+# Combine predicted AQI values with original air quality data
+predicted_data = pd.DataFrame({'Date': date_range, 'AQI': predicted_aqi})
+combined_data = pd.concat([merged_data[['Date', 'AQI']], predicted_data], ignore_index=True)
+
+# Plot the combined data
+plt.figure(figsize=(10, 6))
+plt.plot(combined_data['Date'], combined_data['AQI'], label='Actual AQI')
+plt.plot(predicted_data['Date'], predicted_data['AQI'], label='Predicted AQI', linestyle='--')
+plt.xlabel('Date')
+plt.ylabel('AQI')
+plt.title('Actual vs Predicted AQI Over Time')
+plt.legend()
+plt.grid(True)
+plt.show()
